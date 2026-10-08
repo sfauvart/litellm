@@ -6215,6 +6215,41 @@ async def aresponses_with_retries(*args, **kwargs):
 
 
 ### EMBEDDING ENDPOINTS ####################
+_OPENAI_LIKE_EMBEDDING_PROVIDERS: Final = frozenset({"openai_like", "llamafile", "lm_studio"})
+
+
+def _embeds_through_openai_like(custom_llm_provider: str | None) -> bool:
+    """Whether embedding() sends this provider to the generic OpenAI-compatible handler.
+
+    A JSON-configured provider qualifies when providers.json lists /v1/embeddings for it.
+    """
+    if custom_llm_provider is None:
+        return False
+    if custom_llm_provider in _OPENAI_LIKE_EMBEDDING_PROVIDERS:
+        return True
+    json_provider: Final = JSONProviderRegistry.get(custom_llm_provider)
+    return json_provider is not None and "/v1/embeddings" in json_provider.supported_endpoints
+
+
+def _openai_like_embedding_credentials(
+    custom_llm_provider: str | None, api_base: str | None, api_key: str | None
+) -> tuple[str | None, str | None]:
+    """api_base and api_key for the OpenAI-compatible embedding handler.
+
+    JSON-configured providers had theirs resolved by get_llm_provider() from their own
+    *_API_BASE / *_API_KEY. They get no OPENAI_LIKE_* fallback, so one provider's key is
+    never sent to another.
+    """
+    if custom_llm_provider is not None and JSONProviderRegistry.exists(custom_llm_provider):
+        return api_base, api_key
+    return (
+        api_base or litellm.api_base or get_secret_str("OPENAI_LIKE_API_BASE"),
+        api_key
+        if api_key is not None
+        else litellm.api_key or litellm.openai_like_key or get_secret_str("OPENAI_LIKE_API_KEY"),
+    )
+
+
 @client
 async def aembedding(*args, **kwargs) -> EmbeddingResponse:
     """
@@ -6636,16 +6671,10 @@ def embedding(
                 litellm_params=litellm_params_dict,
                 headers=headers,
             )
-        elif (
-            custom_llm_provider == "openai_like"
-            or custom_llm_provider == "llamafile"
-            or custom_llm_provider == "lm_studio"
-        ):
-            api_base = api_base or litellm.api_base or get_secret_str("OPENAI_LIKE_API_BASE")
-
-            # set API KEY
-            if api_key is None:
-                api_key = api_key or litellm.api_key or litellm.openai_like_key or get_secret_str("OPENAI_LIKE_API_KEY")
+        elif _embeds_through_openai_like(custom_llm_provider):
+            api_base, api_key = _openai_like_embedding_credentials(  # rebind-ok: except block logs api_key
+                custom_llm_provider, api_base, api_key
+            )
 
             if headers is not None and headers != {}:
                 optional_params["extra_headers"] = headers

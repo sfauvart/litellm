@@ -46267,6 +46267,13 @@
         "supports_tool_choice": true,
         "supports_vision": true
     },
+    "corti/corti-s1-embedding": {
+        "input_cost_per_token": 3e-08,
+        "litellm_provider": "corti",
+        "mode": "embedding",
+        "output_cost_per_token": 0.0,
+        "source": "https://docs.corti.ai/models/models#pricing"
+    },
     "snowflake/claude-3-5-sonnet": {
         "litellm_provider": "snowflake",
         "max_input_tokens": 200000,

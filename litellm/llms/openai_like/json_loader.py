@@ -3,6 +3,7 @@ JSON-based provider configuration loader for OpenAI-compatible providers.
 """
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
@@ -21,7 +22,7 @@ class SimpleProviderConfig:
         self.param_mappings = data.get("param_mappings", {})
         self.constraints = data.get("constraints", {})
         self.special_handling = data.get("special_handling", {})
-        self.supported_endpoints = data.get("supported_endpoints", [])
+        self.supported_endpoints: Sequence[str] = data.get("supported_endpoints", [])
 
 
 class JSONProviderRegistry:

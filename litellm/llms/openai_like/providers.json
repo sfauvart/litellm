@@ -205,7 +205,7 @@
     "constraints": {
       "temperature_max": 1.0
     },
-    "supported_endpoints": ["/v1/chat/completions", "/v1/responses"]
+    "supported_endpoints": ["/v1/chat/completions", "/v1/responses", "/v1/embeddings"]
   },
   "scx-ai": {
     "base_url": "https://api.scx.ai/v1",

@@ -121,7 +121,7 @@ def test_corti_supported_endpoints():
         "chat_completions": True,
         "messages": True,
         "responses": True,
-        "embeddings": False,
+        "embeddings": True,
         "image_generations": False,
         "audio_transcriptions": False,
         "audio_speech": False,
@@ -190,6 +190,58 @@ def test_corti_chat_completion_cost_comes_from_the_price_map(model: str):
     expected: Final = 4 * row["input_cost_per_token"] + 3 * row["output_cost_per_token"]
     assert litellm.completion_cost(completion_response=response) == pytest.approx(expected)
     assert expected > 0
+
+
+_EMBEDDING_RESPONSE: Final = {
+    "object": "list",
+    "model": "corti-s1-embedding",
+    "data": [
+        {"object": "embedding", "index": 0, "embedding": [0.1, 0.2, 0.3]},
+        {"object": "embedding", "index": 1, "embedding": [0.4, 0.5, 0.6]},
+    ],
+    "usage": {"prompt_tokens": 6, "total_tokens": 6},
+}
+
+
+def _assert_corti_embedding_call(route: respx.Route, response: litellm.EmbeddingResponse) -> None:
+    request: Final = route.calls.last.request
+    assert route.call_count == 1
+    assert str(request.url) == "https://ai.eu.corti.app/v1/embeddings"
+    assert request.headers["authorization"] == "Bearer corti-test-key"
+    assert json.loads(request.content) == {"model": "corti-s1-embedding", "input": ["Hello", "World"]}
+    assert [item["embedding"] for item in response.data] == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+    row: Final = litellm.model_cost["corti/corti-s1-embedding"]
+    expected_cost: Final = 6 * row["input_cost_per_token"]
+    assert litellm.completion_cost(completion_response=response) == pytest.approx(expected_cost)
+    assert expected_cost > 0
+
+
+def test_corti_embedding_request():
+    with respx.mock() as upstream:
+        route: Final = upstream.post("https://ai.eu.corti.app/v1/embeddings").respond(200, json=_EMBEDDING_RESPONSE)
+        response: Final = litellm.embedding(
+            model="corti/corti-s1-embedding",
+            input=["Hello", "World"],
+            api_key="corti-test-key",
+        )
+
+    _assert_corti_embedding_call(route, response)
+
+
+@pytest.mark.asyncio
+async def test_corti_async_embedding_request(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(litellm, "disable_aiohttp_transport", True)
+    monkeypatch.setattr(litellm, "in_memory_llm_clients_cache", LLMClientCache())
+    with respx.mock() as upstream:
+        route: Final = upstream.post("https://ai.eu.corti.app/v1/embeddings").respond(200, json=_EMBEDDING_RESPONSE)
+        response: Final = await litellm.aembedding(
+            model="corti/corti-s1-embedding",
+            input=["Hello", "World"],
+            api_key="corti-test-key",
+        )
+
+    _assert_corti_embedding_call(route, response)
 
 
 def test_corti_responses_request():

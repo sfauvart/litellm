@@ -4,6 +4,7 @@ Tests for JSON-based provider configuration system.
 
 import os
 import sys
+from typing import Final
 from unittest.mock import patch
 
 try:
@@ -309,3 +310,59 @@ class TestDarkbloom:
 
         assert config is not None
         assert config.custom_llm_provider == "darkbloom"
+
+
+_EMBEDDING_RESPONSE: Final = {
+    "object": "list",
+    "model": "ps/bge-m3",
+    "data": [{"object": "embedding", "index": 0, "embedding": [0.1, 0.2]}],
+    "usage": {"prompt_tokens": 2, "total_tokens": 2},
+}
+
+
+class TestJSONProviderEmbeddings:
+    """litellm.embedding() routes JSON-configured providers that declare /v1/embeddings"""
+
+    def test_provider_declaring_embeddings_is_routed_to_its_base_url(self, monkeypatch):
+        import json
+
+        import respx
+
+        import litellm
+
+        monkeypatch.setenv("PINSTRIPES_API_KEY", "pinstripes-env-key")
+        with respx.mock() as upstream:
+            route: Final = upstream.post("https://pinstripes.io/v1/embeddings").respond(200, json=_EMBEDDING_RESPONSE)
+            response: Final = litellm.embedding(model="pinstripes/ps/bge-m3", input=["Hello"])
+
+        request: Final = route.calls.last.request
+        assert route.call_count == 1
+        assert request.headers["authorization"] == "Bearer pinstripes-env-key"
+        assert json.loads(request.content) == {"model": "ps/bge-m3", "input": ["Hello"]}
+        assert response.data[0]["embedding"] == [0.1, 0.2]
+
+    def test_openai_like_key_is_never_sent_to_a_json_provider(self, monkeypatch):
+        import respx
+
+        import litellm
+
+        monkeypatch.delenv("PINSTRIPES_API_KEY", raising=False)
+        monkeypatch.setenv("OPENAI_LIKE_API_KEY", "openai-like-key")
+        with respx.mock(assert_all_called=False) as upstream:
+            route: Final = upstream.post("https://pinstripes.io/v1/embeddings").respond(200, json=_EMBEDDING_RESPONSE)
+            with pytest.raises(litellm.BadRequestError, match="Missing API Key"):
+                litellm.embedding(model="pinstripes/ps/bge-m3", input=["Hello"])
+
+        assert route.call_count == 0
+
+    def test_provider_without_embeddings_endpoint_stays_unmapped(self):
+        import respx
+
+        import litellm
+
+        with respx.mock(assert_all_called=False) as upstream:
+            route: Final = upstream.post("https://api.reka.ai/v1/embeddings").respond(200, json=_EMBEDDING_RESPONSE)
+            with pytest.raises(litellm.BadRequestError, match="Unmapped LLM provider"):
+                litellm.embedding(model="reka/reka-flash", input=["Hello"], api_key="reka-test-key")
+
+        assert route.call_count == 0
